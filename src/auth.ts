@@ -4,11 +4,12 @@ import { PrismaAdapter } from "@auth/prisma-adapter";
 import { prisma } from "@/lib/prisma";
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
-  trustHost: true, // <-- adaugă asta
+  trustHost: true,
   adapter: PrismaAdapter(prisma),
-  session: { 
+  session: {
     strategy: "jwt",
-    maxAge: 24 * 60 * 60,
+    // Nu punem maxAge: 0 aici. Folosim setarile de cookies de mai jos.
+    maxAge: 24 * 60 * 60, // Sesiunea expira dupa 24h daca browserul ramane deschis
   },
   providers: [
     Discord({
@@ -21,18 +22,22 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     async jwt({ token, user }) {
       // Cand utilizatorul se logheaza (user obiectul exista doar la login)
       if (user) {
-        const dbUser = await prisma.user.findUnique({
-          where: { id: user.id },
-          select: { discordId: true, callsign: true, rol: true, username: true, avatar: true },
-        });
-        
-        if (dbUser) {
-          token.id = user.id;
-          token.discordId = dbUser.discordId;
-          token.callsign = dbUser.callsign;
-          token.rol = dbUser.rol;
-          token.username = dbUser.username;
-          token.avatar = dbUser.avatar;
+        try {
+          const dbUser = await prisma.user.findUnique({
+            where: { id: user.id },
+            select: { discordId: true, callsign: true, rol: true, username: true, avatar: true },
+          });
+
+          if (dbUser) {
+            token.id = user.id;
+            token.discordId = dbUser.discordId;
+            token.callsign = dbUser.callsign;
+            token.rol = dbUser.rol;
+            token.username = dbUser.username;
+            token.avatar = dbUser.avatar;
+          }
+        } catch (error) {
+          console.error("=== JWT CALLBACK ERROR ===", error);
         }
       }
       return token;
@@ -49,47 +54,54 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       return session;
     },
     async signIn({ account, profile }) {
-      if (account?.provider === "discord" && profile) {
-        const discordProfile = profile as any;
-        const discordId = discordProfile.id;
-        
-        const username = discordProfile.discriminator === "0"
-          ? `@${discordProfile.username}`
-          : `@${discordProfile.username}#${discordProfile.discriminator}`;
-        
-        const avatar = discordProfile.avatar
-          ? `https://cdn.discordapp.com/avatars/${discordId}/${discordProfile.avatar}.png`
-          : `https://cdn.discordapp.com/embed/avatars/0.png`;
+      try {
+        if (account?.provider === "discord" && profile) {
+          const discordProfile = profile as any;
+          const discordId = discordProfile.id;
 
-        const whitelist = await prisma.whitelist.findUnique({
-          where: { discordId },
-        });
+          const username = discordProfile.discriminator === "0"
+            ? `@${discordProfile.username}`
+            : `@${discordProfile.username}#${discordProfile.discriminator}`;
 
-        const existingUser = await prisma.user.findFirst({
-          where: {
-            accounts: {
-              some: {
-                provider: "discord",
-                providerAccountId: discordId,
+          const avatar = discordProfile.avatar
+            ? `https://cdn.discordapp.com/avatars/${discordId}/${discordProfile.avatar}.png`
+            : `https://cdn.discordapp.com/embed/avatars/0.png`;
+
+          const whitelist = await prisma.whitelist.findUnique({
+            where: { discordId },
+          });
+
+          const existingUser = await prisma.user.findFirst({
+            where: {
+              accounts: {
+                some: {
+                  provider: "discord",
+                  providerAccountId: discordId,
+                },
               },
             },
-          },
-        });
-
-        if (existingUser) {
-          await prisma.user.update({
-            where: { id: existingUser.id },
-            data: {
-              discordId,
-              username,
-              avatar,
-              callsign: whitelist?.callsign ?? null,
-              rol: whitelist?.rol ?? "user",
-            },
           });
+
+          if (existingUser) {
+            await prisma.user.update({
+              where: { id: existingUser.id },
+              data: {
+                discordId,
+                username,
+                avatar,
+                callsign: whitelist?.callsign ?? null,
+                rol: whitelist?.rol ?? "user",
+              },
+            });
+          }
         }
+        return true;
+      } catch (error) {
+        console.error("=== SIGNIN CALLBACK ERROR ===", error);
+        // Lasam true temporar ca sa nu mascam eroarea cu AccessDenied.
+        // Dupa ce gasim cauza, revenim la "return false" daca e nevoie.
+        return true;
       }
-      return true;
     },
   },
   // --- ACEASTA PARTE REZOLVA STERGEREA LA INCHIDEREA BROWSERULUI ---
