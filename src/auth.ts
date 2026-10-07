@@ -4,11 +4,11 @@ import { PrismaAdapter } from "@auth/prisma-adapter";
 import { prisma } from "@/lib/prisma";
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
+  trustHost: true, // <-- adaugă asta
   adapter: PrismaAdapter(prisma),
   session: { 
     strategy: "jwt",
-    // Nu punem maxAge: 0 aici. Folosim setarile de cookies de mai jos.
-    maxAge: 24 * 60 * 60, // Sesiunea expira dupa 24h daca browserul ramane deschis
+    maxAge: 24 * 60 * 60,
   },
   providers: [
     Discord({
