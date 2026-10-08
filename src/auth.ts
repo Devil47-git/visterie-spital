@@ -8,19 +8,19 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   adapter: PrismaAdapter(prisma),
   session: {
     strategy: "jwt",
-    // Nu punem maxAge: 0 aici. Folosim setarile de cookies de mai jos.
-    maxAge: 24 * 60 * 60, // Sesiunea expira dupa 24h daca browserul ramane deschis
+
+    maxAge: 24 * 60 * 60,
   },
   providers: [
     Discord({
       clientId: process.env.DISCORD_CLIENT_ID!,
       clientSecret: process.env.DISCORD_CLIENT_SECRET!,
+      issuer: "https://discord.com",
       authorization: { params: { prompt: "consent" } },
     }),
   ],
   callbacks: {
     async jwt({ token, user }) {
-      // Cand utilizatorul se logheaza (user obiectul exista doar la login)
       if (user) {
         try {
           const dbUser = await prisma.user.findUnique({
@@ -98,13 +98,10 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         return true;
       } catch (error) {
         console.error("=== SIGNIN CALLBACK ERROR ===", error);
-        // Lasam true temporar ca sa nu mascam eroarea cu AccessDenied.
-        // Dupa ce gasim cauza, revenim la "return false" daca e nevoie.
         return true;
       }
     },
   },
-  // --- ACEASTA PARTE REZOLVA STERGEREA LA INCHIDEREA BROWSERULUI ---
   cookies: {
     sessionToken: {
       name: `next-auth.session-token`,
@@ -113,11 +110,10 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         sameSite: "lax",
         path: "/",
         secure: process.env.NODE_ENV === "production",
-        // FARA maxAge aici = Session Cookie (se sterge cand inchizi browserul)
+
       },
     },
   },
-  // ----------------------------------------------------------------
   pages: {
     signIn: "/",
   },
